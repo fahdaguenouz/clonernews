@@ -1,70 +1,62 @@
-let maxitems = 0;
-let currentIndex = 0;
+// Constants and Variables
 const STORIES_PER_LOAD = 10;
+let maxItems = 0;
+let currentIndex = 0;
 let isLoading = false;
-let activeType = "story"; 
+let activeType = "story";
 let items = {
     story: [],
     poll: [],
     job: []
 };
 
+async function initHackerNews() {
+    loader();
+    filterChoise();
+    try {
+        await fetchMaxItem();
+        await filterItems();
+        addScrollListener();
+    } catch (error) {
+        console.error("Error initializing Hacker News:", error);
+    }
+}
 
+// Setup UI components
+function loader() {
+    const main = document.querySelector(".main");
+    const container = document.createElement("div");
+    container.id = "constainer";
+    main.appendChild(container);
+    const loadingIndicator = document.createElement("div");
+    loadingIndicator.id = "loading";
+    loadingIndicator.textContent = `Loading...  it may take some time !!`;
+    loadingIndicator.style.display = "block";
+    main.appendChild(loadingIndicator);
+}
 
-function listen() {
+function filterChoise() {
     const header = document.getElementById("headers");
     if (header) {
         header.addEventListener("click", (event) => {
             if (event.target.classList.contains("btn")) {
-              console.log(event.target.id);
-              
-                activeType = event.target.id; 
-                currentIndex = 0; 
-                updateUI(); 
+                activeType = event.target.id;
+                currentIndex = 0;
+                updateElement();
             }
         });
     }
 }
 
-function loader() {
-    const main = document.querySelector(".main");
-    const container = document.createElement("div");
-    container.id = "stories-container";
-    main.appendChild(container);
 
-    const loadingIndicator = document.createElement("div");
-    loadingIndicator.id = "loading";
-    loadingIndicator.textContent = "Loading...";
-    loadingIndicator.style.display = "block";
-    main.appendChild(loadingIndicator);
+async function fetchMaxItem() {
+    const resp = await fetch("https://hacker-news.firebaseio.com/v0/maxitem.json?print=pretty");
+    if (!resp.ok) throw new Error("Fetch error");
+    maxItems = await resp.json();
 }
 
-async function HackerNews() {
-    loader();
-    listen();
-    try {
-        const resp = await fetch("https://hacker-news.firebaseio.com/v0/maxitem.json?print=pretty");
-        if (!resp.ok) throw new Error("Fetch error");
-
-        maxitems = await resp.json();
-        await filterItems();
-        window.addEventListener("scroll", debounce(handleScroll, 500));
-    } catch (error) {
-        console.error("Error fetching max item:", error);
-    }
-}
-
-async function filterItems() {
-    const fetchPromises = []
-    for (let i = maxitems; i > maxitems - 500; i--) {
-        fetchPromises.push(fetchData(i));
-    }
-    const results = await Promise.all(fetchPromises);
-    items.story = results.filter(data => data && data.type === "story"&& !data.dead );
-    items.poll = results.filter(data => data && data.type === "poll");
-    items.job = results.filter(data => data && data.type === "job");
-    console.log("Filtered items:", items);
-    updateUI();
+function addScrollListener() {
+    window.addEventListener("scroll", debounce(handleScroll, 500));
 }
 
 function debounce(func, delay) {
@@ -78,22 +70,52 @@ function debounce(func, delay) {
 function handleScroll() {
     if (isLoading) return;
     const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    console.log(window.scrollY);
+    console.log(document.documentElement.scrollTop);
+    
+    
     const windowHeight = window.innerHeight;
     const documentHeight = document.documentElement.scrollHeight;
     if (scrollTop + windowHeight >= documentHeight - 100) {
-        loadMoreStories();
+        loadMore();
     }
 }
 
-function updateUI() {
-    const container = document.getElementById("stories-container");
-    container.innerHTML = ""; 
-    currentIndex = 0; 
-    loadMoreStories();
+async function fetchData(id) {
+    try {
+        const resp = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json?print=pretty`);
+        if (!resp.ok) throw new Error("Fetch error");
+        return await resp.json();
+    } catch (e) {
+        console.error("Error fetching data:", e);
+        return null;
+    }
 }
 
-function loadMoreStories() {
-    if (!items[activeType]) items[activeType] = []; 
+
+async function filterItems() {
+    const fetchPromises = [];
+    let latestitem = maxItems
+    for (let i = maxItems; i > maxItems - 500; i--) {
+        latestitem = i
+        fetchPromises.push(fetchData(i));
+    }
+    const results = await Promise.all(fetchPromises);
+    items.story = results.filter(data => data && data.type === "story" && !data.dead &&!data.deleted);
+    items.poll = results.filter(data => data && data.type === "poll");
+    items.job = results.filter(data => data && data.type === "job");
+    console.log("Filtered items:", items);
+    updateElement();
+}
+function updateElement() {
+    const container = document.getElementById("constainer");
+    container.innerHTML = "";
+    currentIndex = 0;
+    loadMore();
+}
+
+function loadMore() {
+    if (!items[activeType]) items[activeType] = [];
     if (isLoading || currentIndex >= items[activeType].length) return;
 
     isLoading = true;
@@ -102,49 +124,78 @@ function loadMoreStories() {
     const endIndex = Math.min(currentIndex + STORIES_PER_LOAD, items[activeType].length);
     const storiesToLoad = items[activeType].slice(currentIndex, endIndex);
 
-    const container = document.getElementById("stories-container");
-    storiesToLoad.forEach(story => container.appendChild(display(story)));
+    const container = document.getElementById("constainer");
+    storiesToLoad.forEach(story => container.appendChild(displayStory(story)));
 
     currentIndex = endIndex;
     isLoading = false;
     document.getElementById("loading").style.display = "none";
 }
 
-async function fetchData(id) {
-    try {
-        const resp = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json?print=pretty`);
-        if (!resp.ok) throw new Error("Fetch error");
-
-        return await resp.json();
-    } catch (e) {
-        console.error("Error fetching data:", e);
-        return null;
-    }
-}
-
-function display(story) {
+function displayStory(story) {
     const content = document.createElement("div");
-    content.classList.add("content");
+    content.classList.add("content", story.type);
 
-    const type = document.createElement("h2");
-    type.textContent = story.type || "No type";
+    const header = document.createElement("div");
+    header.innerHTML = `
+        <h2>${story.type.toUpperCase()}</h2>
+        <p>${story.title || "No title"}</p>
+        ${story.url ? `<a href="${story.url}" target="_blank">Read more →</a>` : ''}
+        ${story.score ? `<div class="score">${story.score} points</div>` : ''}
+        ${story.time ? `<div class="time">Posted ${new Date(story.time * 1000).toLocaleString()}</div>` : ''}
+    `;
 
-    const txt = document.createElement("p");
-    txt.textContent = story.title || "No title";
+    content.appendChild(header);
 
-    content.appendChild(type);
-    content.appendChild(txt);
+    if (story.kids && story.kids.length > 0) {
+        const commentsContainer = document.createElement("div");
+        commentsContainer.className = "comments";
+        const commentTitle = document.createElement("h3");
+        commentTitle.textContent = `Comments (${story.kids.length})`;
+        content.appendChild(commentTitle);
+        content.appendChild(commentsContainer);
 
-    if (story.url) {
-        const link = document.createElement("a");
-        link.href = story.url;
-        link.textContent = "Read more";
-        link.target = "_blank";
-        content.appendChild(link);
+        const loadComments = async (ids, container, depth = 0) => {
+            for (const id of ids) {
+                const comment = await fetchData(id);
+                // Check for deleted property first
+                if (!comment || comment.deleted) {
+                    const deletedDiv = document.createElement("div");
+                    deletedDiv.className = "comment deleted";
+                    deletedDiv.style.paddingLeft = `${depth * 20}px`;
+                    deletedDiv.textContent = "[deleted]";
+                    container.appendChild(deletedDiv);
+                    continue;
+                }
+
+                if (comment.text) {
+                    const commentDiv = document.createElement("div");
+                    commentDiv.className = "comment";
+                    commentDiv.style.paddingLeft = `${depth * 20}px`;
+                    commentDiv.innerHTML = `
+                        <div class="comment-meta">
+                            ${comment.by ? `<span class="author">by ${comment.by}</span>` : ''}
+                            ${comment.time ? `<span class="time">${new Date(comment.time * 1000).toLocaleString()}</span>` : ''}
+                        </div>
+                        <div class="comment-text">${comment.text}</div>
+                    `;
+
+                    container.appendChild(commentDiv);
+
+                    if (comment.kids && comment.kids.length > 0) {
+                        const subcommentTitle = document.createElement("h3");
+                        subcommentTitle.textContent = `Sub Comments (${comment.kids.length})`;
+                        commentDiv.appendChild(subcommentTitle)
+                        await loadComments(comment.kids, commentDiv, depth + 1);
+                    }
+                }
+            }
+        };
+
+        loadComments(story.kids, commentsContainer);
     }
 
-    content.appendChild(document.createElement("hr"));
     return content;
 }
 
-HackerNews();
+initHackerNews();
