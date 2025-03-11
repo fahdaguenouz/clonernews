@@ -3,18 +3,25 @@ const STORIES_PER_LOAD = 10;
 let maxItems = 0;
 let currentIndex = 0;
 let isLoading = false;
-let activeType = "story";
+let activeType = "top";
 let items = {
     story: [],
     poll: [],
     job: []
 };
 
+const API_URLS = {
+    top: "https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty",
+    story: "https://hacker-news.firebaseio.com/v0/newstories.json?print=pretty",
+    poll: "https://hacker-news.firebaseio.com/v0/askstories.json?print=pretty",
+    job: "https://hacker-news.firebaseio.com/v0/jobstories.json?print=pretty"
+};
+
 async function initHackerNews() {
-    loader();
+    
     filterChoise();
     try {
-        await fetchMaxItem();
+        //await fetchMaxItem();
         await filterItems();
         addScrollListener();
     } catch (error) {
@@ -22,7 +29,6 @@ async function initHackerNews() {
     }
 }
 
-// Setup UI components
 function loader() {
     const main = document.querySelector(".main");
     const container = document.createElement("div");
@@ -36,27 +42,25 @@ function loader() {
 }
 
 function filterChoise() {
+    loader();
     const header = document.getElementById("headers");
     if (header) {
-        header.addEventListener("click", (event) => {
+        header.addEventListener("click",async (event) => {
             if (event.target.classList.contains("btn")) {
+               
                 activeType = event.target.id;
+                console.log(activeType);
                 currentIndex = 0;
                 updateElement();
+                await filterItems();
             }
         });
     }
 }
 
 
-async function fetchMaxItem() {
-    const resp = await fetch("https://hacker-news.firebaseio.com/v0/maxitem.json?print=pretty");
-    if (!resp.ok) throw new Error("Fetch error");
-    maxItems = await resp.json();
-}
-
 function addScrollListener() {
-    window.addEventListener("scroll", debounce(handleScroll, 500));
+    window.addEventListener("scroll", debounce(handleScroll, 1000));
 }
 
 function debounce(func, delay) {
@@ -85,6 +89,8 @@ async function fetchData(id) {
     try {
         const resp = await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json?print=pretty`);
         if (!resp.ok) throw new Error("Fetch error");
+       
+        
         return await resp.json();
     } catch (e) {
         console.error("Error fetching data:", e);
@@ -94,17 +100,17 @@ async function fetchData(id) {
 
 
 async function filterItems() {
-    const fetchPromises = [];
-    let latestitem = maxItems
-    for (let i = maxItems; i > maxItems - 500; i--) {
-        latestitem = i
-        fetchPromises.push(fetchData(i));
-    }
-    const results = await Promise.all(fetchPromises);
-    items.story = results.filter(data => data && data.type === "story" && !data.dead &&!data.deleted);
-    items.poll = results.filter(data => data && data.type === "poll");
-    items.job = results.filter(data => data && data.type === "job");
-    console.log("Filtered items:", items);
+    console.log(activeType);
+    
+    console.log(API_URLS[activeType]);
+
+    const resp = await fetch(API_URLS[activeType]);
+    if (!resp.ok) throw new Error("Fetch error");
+
+    items[activeType] = await resp.json();  
+    console.log(items);
+    
+    currentIndex = 0; 
     updateElement();
 }
 function updateElement() {
@@ -114,51 +120,100 @@ function updateElement() {
     loadMore();
 }
 
-function loadMore() {
-    if (!items[activeType]) items[activeType] = [];
+async function loadMore() {
     if (isLoading || currentIndex >= items[activeType].length) return;
 
     isLoading = true;
     document.getElementById("loading").style.display = "block";
 
     const endIndex = Math.min(currentIndex + STORIES_PER_LOAD, items[activeType].length);
-    const storiesToLoad = items[activeType].slice(currentIndex, endIndex);
+    const idsToFetch = items[activeType].slice(currentIndex, endIndex);
 
+
+    const fetchPromises = idsToFetch.map(fetchData);
+    const results = await Promise.all(fetchPromises);
+console.log(results);
+
+    const validResults = results.filter(data => data && !data.dead && !data.deleted);
+    
     const container = document.getElementById("constainer");
-    storiesToLoad.forEach(story => container.appendChild(displayStory(story)));
+    validResults.forEach(story => container.appendChild(displayItem(story)));
 
     currentIndex = endIndex;
     isLoading = false;
     document.getElementById("loading").style.display = "none";
 }
 
-function displayStory(story) {
+function displayItem(item) {
     const content = document.createElement("div");
-    content.classList.add("content", story.type);
+    content.classList.add("content", item.type);
 
     const header = document.createElement("div");
     header.innerHTML = `
-        <h2>${story.type.toUpperCase()}</h2>
-        <p>${story.title || "No title"}</p>
-        ${story.url ? `<a href="${story.url}" target="_blank">Read more →</a>` : ''}
-        ${story.score ? `<div class="score">${story.score} points</div>` : ''}
-        ${story.time ? `<div class="time">Posted ${new Date(story.time * 1000).toLocaleString()}</div>` : ''}
+        <h2 class="typeitem">${item.type.toUpperCase()}</h2>
+        <p>${item.title || "No title"}</p>
+        ${item.url ? `<a href="${item.url}" target="_blank">Read more →</a>` : ''}
+        ${item.score ? `<div class="score">${item.score} points</div>` : ''}
+        ${item.time ? `<div class="time">Posted ${new Date(item.time * 1000).toLocaleString()}</div>` : ''}
     `;
 
     content.appendChild(header);
 
-    if (story.kids && story.kids.length > 0) {
+
+    if (item.type === 'story') {
+        if (item.text) {
+            const storyText = document.createElement("div");
+            storyText.className = "story-text";
+            storyText.innerHTML = item.text;
+            content.appendChild(storyText);
+        }
+    }
+
+    // if ( (item.type === 'story' && item.parts)) {
+        
+    //     const type= document.querySelector(".typeitem")
+    //     type.innerHTML="Poll"
+    //     const pollOptions = document.createElement("div");
+    //     pollOptions.className = "poll-options";
+    //     const optionsTitle = document.createElement("h3");
+    //     optionsTitle.textContent = "Poll Options";
+    //     pollOptions.appendChild(optionsTitle);
+
+    //     item.parts.forEach(async (optionId) => {
+    //         const option = await fetchData(optionId);
+    //         if (option && !option.deleted) {
+    //             const optionDiv = document.createElement("div");
+    //             optionDiv.className = "poll-option";
+    //             optionDiv.innerHTML = `
+    //                 <div class="option-text">${option.text}</div>
+    //                 ${option.score ? `<div class="option-score">${option.score} points</div>` : ''}
+    //             `;
+    //             pollOptions.appendChild(optionDiv);
+    //         }
+    //     });
+
+    //     content.appendChild(pollOptions);
+    // }
+
+    if (item.type === 'job' && item.text) {
+        const jobDescription = document.createElement("div");
+        jobDescription.className = "job-description";
+        jobDescription.innerHTML = item.text;
+        content.appendChild(jobDescription);
+    }
+
+
+    if (item.kids && item.kids.length > 0) {
         const commentsContainer = document.createElement("div");
         commentsContainer.className = "comments";
         const commentTitle = document.createElement("h3");
-        commentTitle.textContent = `Comments (${story.kids.length})`;
+        commentTitle.textContent = `Comments (${item.kids.length})`;
         content.appendChild(commentTitle);
         content.appendChild(commentsContainer);
 
         const loadComments = async (ids, container, depth = 0) => {
             for (const id of ids) {
                 const comment = await fetchData(id);
-                // Check for deleted property first
                 if (!comment || comment.deleted) {
                     const deletedDiv = document.createElement("div");
                     deletedDiv.className = "comment deleted";
@@ -183,19 +238,62 @@ function displayStory(story) {
                     container.appendChild(commentDiv);
 
                     if (comment.kids && comment.kids.length > 0) {
-                        const subcommentTitle = document.createElement("h3");
-                        subcommentTitle.textContent = `Sub Comments (${comment.kids.length})`;
-                        commentDiv.appendChild(subcommentTitle)
                         await loadComments(comment.kids, commentDiv, depth + 1);
                     }
                 }
             }
         };
 
-        loadComments(story.kids, commentsContainer);
+        loadComments(item.kids, commentsContainer);
     }
 
     return content;
 }
 
+
+
+
+
+
+
 initHackerNews();
+
+// Function to fetch max item and update dropdown
+async function fetchMaxItem() {
+    try {
+        const response = await fetch("https://hacker-news.firebaseio.com/v0/maxitem.json?print=pretty");
+        if (!response.ok) throw new Error("Failed to fetch maxitem");
+
+        const newMaxItem = await response.json();
+        
+        if (newMaxItem !== maxItems) {
+            maxItems = newMaxItem;
+            const itemData = await fetchData(newMaxItem);
+            updateDropdown(itemData);
+        } else {
+            updateDropdown(null);
+        }
+    } catch (error) {
+        console.error("Error fetching maxitem:", error);
+    }
+}
+
+// Function to update the dropdown list
+function updateDropdown(item) {
+    const dropdown = document.getElementById("dropdown");
+
+    dropdown.innerHTML = ""; // Clear existing options
+
+    if (item) {
+        const option = document.createElement("option");
+        option.textContent = `${item.type.toUpperCase()} - ${item.title || "No title"}`;
+        dropdown.appendChild(option);
+    } else {
+        const noUpdateOption = document.createElement("option");
+        noUpdateOption.textContent = "No update";
+        dropdown.appendChild(noUpdateOption);
+    }
+}
+
+// Start listening to maxitem API every 5 seconds
+setInterval(fetchMaxItem, 5000);
