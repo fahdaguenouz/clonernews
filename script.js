@@ -4,7 +4,6 @@ let currentItemId = 0;
 let isLoading = false;
 let lastMaxItemId = 0;
 let currentHeaderItemId = 0;
-let displayedItems = [];
 
 async function initHackerNews() {
     try {
@@ -133,7 +132,6 @@ async function loadMore() {
 
         const container = document.getElementById("container");
         for (const item of displayitm) {
-            displayedItems.push(item.id);
             container.appendChild(displayItem(item));
         }
     } catch (error) {
